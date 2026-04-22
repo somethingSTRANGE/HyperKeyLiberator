@@ -4,16 +4,18 @@ namespace HyperKeyLiberatorService;
 
 public class Worker(ILogger<Worker> logger) : BackgroundService
 {
-    private readonly Dictionary<uint, int> _helpers = new(); // sessionId → pid
+    private readonly Dictionary<uint, int> _helpers = new();
+    private readonly HashSet<uint> _activeSessions = new();
+    private readonly List<uint> _toKill = new();
     private readonly string _helperPath = Path.Combine(AppContext.BaseDirectory, "HyperKeyLiberator.exe");
 
     private enum WTS_CONNECTSTATE_CLASS { WTSActive, WTSConnected, WTSConnectQuery, WTSShadow, WTSDisconnected, WTSIdle, WTSListen, WTSReset, WTSDown, WTSInit }
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    [StructLayout(LayoutKind.Sequential)]
     private struct WTS_SESSION_INFO
     {
         public uint SessionId;
-        [MarshalAs(UnmanagedType.LPWStr)] public string pWinStationName;
+        public IntPtr pWinStationName; // LPWSTR — unused, kept as IntPtr to avoid string allocation
         public WTS_CONNECTSTATE_CLASS State;
     }
 
@@ -35,6 +37,7 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
     }
 
     private static readonly IntPtr WTS_CURRENT_SERVER_HANDLE = IntPtr.Zero;
+    private static readonly int WtsSessionInfoSize = Marshal.SizeOf<WTS_SESSION_INFO>();
     private const uint CREATE_UNICODE_ENVIRONMENT        = 0x00000400;
     private const uint CREATE_NO_WINDOW                  = 0x08000000;
     private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x00001000;
@@ -74,26 +77,30 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("Service started, helper: {HelperPath}", _helperPath);
+        return Task.Run(() => RunLoop(stoppingToken));
+    }
+
+    private void RunLoop(CancellationToken stoppingToken)
+    {
         try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
                 SyncHelpers();
-                await Task.Delay(1000, stoppingToken);
+                stoppingToken.WaitHandle.WaitOne(1000);
             }
         }
-        catch (OperationCanceledException) { }
         finally { KillAllHelpers(); }
     }
 
     private void SyncHelpers()
     {
-        var activeSessions = GetActiveSessionIds();
+        GetActiveSessionIds(_activeSessions);
 
-        foreach (var sessionId in activeSessions)
+        foreach (var sessionId in _activeSessions)
         {
             if (_helpers.TryGetValue(sessionId, out var pid))
             {
@@ -104,27 +111,29 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
             SpawnHelper(sessionId);
         }
 
-        foreach (var sessionId in _helpers.Keys.Except(activeSessions).ToList())
+        _toKill.Clear();
+        foreach (var sessionId in _helpers.Keys)
+            if (!_activeSessions.Contains(sessionId))
+                _toKill.Add(sessionId);
+        foreach (var sessionId in _toKill)
             KillHelper(sessionId);
     }
 
-    private HashSet<uint> GetActiveSessionIds()
+    private void GetActiveSessionIds(HashSet<uint> result)
     {
-        var result = new HashSet<uint>();
+        result.Clear();
         if (!WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, out var pSessions, out int count))
-            return result;
+            return;
         try
         {
-            int size = Marshal.SizeOf<WTS_SESSION_INFO>();
             for (int i = 0; i < count; i++)
             {
-                var info = Marshal.PtrToStructure<WTS_SESSION_INFO>(IntPtr.Add(pSessions, i * size));
+                var info = Marshal.PtrToStructure<WTS_SESSION_INFO>(IntPtr.Add(pSessions, i * WtsSessionInfoSize));
                 if (info.State == WTS_CONNECTSTATE_CLASS.WTSActive && info.SessionId != 0)
                     result.Add(info.SessionId);
             }
         }
         finally { WTSFreeMemory(pSessions); }
-        return result;
     }
 
     private static bool IsProcessRunning(int pid)
