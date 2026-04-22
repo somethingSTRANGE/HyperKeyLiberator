@@ -75,6 +75,24 @@ User logs in
 
 > **Note for AutoHotkey, PowerToys, and similar tools:** The stubs are held for approximately 4 seconds after Explorer starts. If your tool launches at logon and registers Hyper-key bindings immediately, it may try to claim them while the stubs are still active — and silently fail. Add a 5-second startup delay (e.g., `Sleep 5000` in AutoHotkey) before registering any Hyper-key hotkeys.
 
+### Verifying it works
+
+After logging in, run one of these scripts manually in AutoHotkey to confirm a Hyper-key combination is free. Press `Hyper+W` — if a message box appears instead of Word launching, everything is working.
+
+**AutoHotkey v2:**
+```ahk
+^#!+w:: MsgBox("Hyper+W is free!")
+```
+
+**AutoHotkey v1:**
+```ahk
+^#!+w::
+    MsgBox, Hyper+W is free!
+return
+```
+
+In AutoHotkey, `^` is Ctrl, `#` is Win, `!` is Alt, and `+` is Shift — so `^#!+w` is the full Hyper+W combination.
+
 ## Installation
 
 ### Prerequisites
