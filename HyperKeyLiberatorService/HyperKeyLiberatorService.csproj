@@ -6,6 +6,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <UserSecretsId>dotnet-HyperKeyLiberator-f75501e5-997b-4dc8-8772-4353bf3d8a98</UserSecretsId>
         <PublishSingleFile>true</PublishSingleFile>
+        <AssemblyTitle>HyperKey Liberator Service</AssemblyTitle>
     </PropertyGroup>
 
     <ItemGroup>
