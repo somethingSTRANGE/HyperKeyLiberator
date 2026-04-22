@@ -14,18 +14,18 @@ Some keyboards — particularly Microsoft hardware — have a dedicated physical
 
 These are the shortcuts Windows Explorer registers and this service disables:
 
-| Shortcut       | Default behavior                                              |
-|----------------|---------------------------------------------------------------|
-| `Hyper+D`      | Open OneDrive                                                 |
-| `Hyper+L`      | Open LinkedIn in the default browser                          |
-| `Hyper+N`      | Open OneNote UWP app                                          |
-| `Hyper+O`      | Open Outlook                                                  |
-| `Hyper+P`      | Open PowerPoint                                               |
-| `Hyper+T`      | Open Teams in the default browser                             |
-| `Hyper+W`      | Open Word                                                     |
-| `Hyper+X`      | Open Excel                                                    |
-| `Hyper+Y`      | Open Yammer in the default browser                            |
-| `Hyper+Space`  | Open the emoji picker                                         |
+| Shortcut       | Default behavior                                            |
+|----------------|-------------------------------------------------------------|
+| `Hyper+D`      | Open OneDrive                                               |
+| `Hyper+L`      | Open LinkedIn in the default browser                        |
+| `Hyper+N`      | Open OneNote UWP app                                        |
+| `Hyper+O`      | Open Outlook                                                |
+| `Hyper+P`      | Open PowerPoint                                             |
+| `Hyper+T`      | Open Teams in the default browser                           |
+| `Hyper+W`      | Open Word                                                   |
+| `Hyper+X`      | Open Excel                                                  |
+| `Hyper+Y`      | Open Yammer in the default browser                          |
+| `Hyper+Space`  | Open the emoji picker (also accessible via `Win+;`)         |
 
 
 ## The _bare_ Hyper key
