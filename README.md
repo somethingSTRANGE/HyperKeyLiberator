@@ -64,14 +64,16 @@ User logs in
  │
  ├─ WTS_SESSION_LOGON fires immediately
  │   └─ Service spawns HyperKeyLiberator.exe into Session 1
- │       └─ Helper registers hotkey stubs  ← completes in milliseconds
+ │       └─ Helper registers hotkey stubs  ✔️ completes in milliseconds
  │
  └─ Userinit.exe runs (profile load, group policy, logon scripts...)
      └─ Explorer.exe starts and initializes shell
-         └─ Explorer attempts hotkey registration  ✗ already taken
+         └─ Explorer attempts hotkey registration  ❌ already taken
              └─ After ~4 seconds: helper releases stubs
                  └─ Keys are now free for your own bindings
 ```
+
+> **Note for AutoHotkey, PowerToys, and similar tools:** The stubs are held for approximately 4 seconds after Explorer starts. If your tool launches at logon and registers Hyper-key bindings immediately, it may try to claim them while the stubs are still active — and silently fail. Add a 5-second startup delay (e.g., `Sleep 5000` in AutoHotkey) before registering any Hyper-key hotkeys.
 
 ## Installation
 
