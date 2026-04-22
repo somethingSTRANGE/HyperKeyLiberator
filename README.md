@@ -44,6 +44,26 @@ Windows only allows one process to hold a global hotkey registration at a time. 
 
 If Explorer ever restarts, the process repeats automatically.
 
+### Logon sequence
+
+```
+Boot
+ │
+ └─ HyperKeyLiberatorService starts (Session 0)
+
+User logs in
+ │
+ ├─ WTS_SESSION_LOGON fires immediately
+ │   └─ Service spawns HyperKeyLiberator.exe into Session 1
+ │       └─ Helper registers hotkey stubs  ← completes in milliseconds
+ │
+ └─ Userinit.exe runs (profile load, group policy, logon scripts...)
+     └─ Explorer.exe starts and initializes shell
+         └─ Explorer attempts hotkey registration  ✗ already taken
+             └─ After ~4 seconds: helper releases stubs
+                 └─ Keys are now free for your own bindings
+```
+
 ### Why two executables?
 
 Windows enforces **Session 0 Isolation**: all Windows Services run in Session 0, a background session isolated from the interactive desktop (Session 1, where Explorer runs). `RegisterHotKey` is session-scoped, so a call from Session 0 has no effect on Explorer in Session 1.
