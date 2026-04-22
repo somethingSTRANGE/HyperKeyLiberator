@@ -1,11 +1,10 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace HyperKeyLiberatorService;
 
 public class Worker(ILogger<Worker> logger) : BackgroundService
 {
-    private readonly Dictionary<uint, Process> _helpers = new();
+    private readonly Dictionary<uint, int> _helpers = new(); // sessionId → pid
     private readonly string _helperPath = Path.Combine(AppContext.BaseDirectory, "HyperKeyLiberator.exe");
 
     private enum WTS_CONNECTSTATE_CLASS { WTSActive, WTSConnected, WTSConnectQuery, WTSShadow, WTSDisconnected, WTSIdle, WTSListen, WTSReset, WTSDown, WTSInit }
@@ -36,8 +35,11 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
     }
 
     private static readonly IntPtr WTS_CURRENT_SERVER_HANDLE = IntPtr.Zero;
-    private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
-    private const uint CREATE_NO_WINDOW           = 0x08000000;
+    private const uint CREATE_UNICODE_ENVIRONMENT        = 0x00000400;
+    private const uint CREATE_NO_WINDOW                  = 0x08000000;
+    private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x00001000;
+    private const uint PROCESS_TERMINATE                 = 0x00000001;
+    private const uint STILL_ACTIVE                      = 259;
 
     [DllImport("wtsapi32.dll", SetLastError = true)]
     private static extern bool WTSEnumerateSessions(IntPtr hServer, int reserved, int version, out IntPtr ppSessionInfo, out int pCount);
@@ -59,6 +61,15 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
         IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags,
         IntPtr lpEnvironment, string? lpCurrentDirectory, ref STARTUPINFO lpStartupInfo,
         out PROCESS_INFORMATION lpProcessInformation);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
@@ -84,10 +95,9 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
 
         foreach (var sessionId in activeSessions)
         {
-            if (_helpers.TryGetValue(sessionId, out var existing))
+            if (_helpers.TryGetValue(sessionId, out var pid))
             {
-                if (!existing.HasExited) continue;
-                existing.Dispose();
+                if (IsProcessRunning(pid)) continue;
                 _helpers.Remove(sessionId);
                 logger.LogWarning("Helper for session {SessionId} exited unexpectedly, re-spawning", sessionId);
             }
@@ -117,6 +127,17 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
         return result;
     }
 
+    private static bool IsProcessRunning(int pid)
+    {
+        var handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (handle == IntPtr.Zero) return false;
+        try
+        {
+            return GetExitCodeProcess(handle, out uint code) && code == STILL_ACTIVE;
+        }
+        finally { CloseHandle(handle); }
+    }
+
     private void SpawnHelper(uint sessionId)
     {
         if (!File.Exists(_helperPath))
@@ -144,8 +165,8 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
                     return;
                 }
                 CloseHandle(pi.hThread);
-                try { _helpers[sessionId] = Process.GetProcessById(pi.dwProcessId); }
-                finally { CloseHandle(pi.hProcess); }
+                CloseHandle(pi.hProcess);
+                _helpers[sessionId] = pi.dwProcessId;
                 logger.LogInformation("Spawned helper (PID {Pid}) for session {SessionId}", pi.dwProcessId, sessionId);
             }
             finally
@@ -158,17 +179,22 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
 
     private void KillHelper(uint sessionId)
     {
-        if (!_helpers.TryGetValue(sessionId, out var process)) return;
+        if (!_helpers.TryGetValue(sessionId, out var pid)) return;
+        _helpers.Remove(sessionId);
+        var handle = OpenProcess(PROCESS_TERMINATE, false, pid);
+        if (handle == IntPtr.Zero)
+        {
+            logger.LogInformation("Helper for session {SessionId} already exited", sessionId);
+            return;
+        }
         try
         {
-            if (!process.HasExited)
-            {
-                process.Kill();
-                logger.LogInformation("Killed helper for session {SessionId}", sessionId);
-            }
+            if (TerminateProcess(handle, 0))
+                logger.LogInformation("Killed helper (PID {Pid}) for session {SessionId}", pid, sessionId);
+            else
+                logger.LogWarning("TerminateProcess failed for helper (PID {Pid}), session {SessionId}: error {Error}", pid, sessionId, Marshal.GetLastWin32Error());
         }
-        catch (Exception ex) { logger.LogWarning(ex, "Failed to kill helper for session {SessionId}", sessionId); }
-        finally { process.Dispose(); _helpers.Remove(sessionId); }
+        finally { CloseHandle(handle); }
     }
 
     private void KillAllHelpers()
