@@ -13,31 +13,61 @@ Reference implementations (C++):
 ## Build & Run
 
 ```bash
-# Build
-dotnet build
+# Build the full solution
+dotnet build HyperKeyLiberator.sln
 
-# Run locally (for testing outside the service host)
-dotnet run --project HyperKeyLiberator
+# Run the helper standalone (Session 1 — useful for testing hotkey logic without the service)
+dotnet run --project HyperKeyLiberator/HyperKeyLiberator.csproj
 
-# Publish self-contained for deployment
-dotnet publish -c Release -r win-x64 --self-contained
+# Publish self-contained release builds for deployment
+dotnet publish HyperKeyLiberatorService/HyperKeyLiberatorService.csproj -c Release -r win-x64 --self-contained
+dotnet publish HyperKeyLiberator/HyperKeyLiberator.csproj -c Release -r win-x64 --self-contained
 
-# Install as a Windows service (run as Administrator)
-sc create HyperKeyLiberator binPath="C:\path\to\HyperKeyLiberator.exe" start=auto
+# Install as a Windows service via NSSM (run as Administrator)
+# Both exes must be in the same deployment folder
+nssm install HyperKeyLiberator "C:\path\to\HyperKeyLiberatorService.exe"
+# Leave Log On as Local System (default) — WTSQueryUserToken requires SE_TCB_PRIVILEGE
 sc start HyperKeyLiberator
-
-# Or use NSSM for user-session deployment (preferred — see Session Isolation below)
-nssm install HyperKeyLiberator "C:\path\to\HyperKeyLiberator.exe"
 ```
 
 ## Architecture
 
-The project is a .NET Worker Service (`BackgroundService`) structured around three concerns:
+The project is split into two executables due to Windows Session 0 Isolation (see Key Technical Constraints below).
 
-### 1. Hotkey Registration (`HotkeyBlocker`)
-P/Invoke wrapper around `RegisterHotKey` / `UnregisterHotKey` (user32.dll). Registers all Hyper-key combinations as stubs (no handler needed — ownership is the goal). Because `RegisterHotKey` with `hWnd = IntPtr.Zero` ties registrations to the calling thread's message queue, the blocker must run on a dedicated STA thread that pumps messages via `GetMessage` / `TranslateMessage` / `DispatchMessage`. Stubs are held only long enough to block Explorer's registration attempt, then released.
+### 1. HyperKeyLiberatorService — Session 0 Windows Service
 
-Hotkey list (MOD_WIN | MOD_ALT | MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT):
+Registered with the Windows Service Control Manager via NSSM. Runs as Local System in Session 0. Its sole responsibility is session lifecycle management:
+
+- Polls `WTSEnumerateSessions` every second for active interactive user sessions
+- On new session: calls `WTSQueryUserToken` to get the user's token, then `CreateProcessAsUser` to spawn the helper into that session
+- On session end: kills the helper process
+- Handles multiple concurrent sessions and automatic re-spawn if the helper crashes
+
+The service does not perform any hotkey operations itself.
+
+### 2. HyperKeyLiberator — Session 1 Helper (plain console app)
+
+Spawned by the service into the user's interactive session. Contains all hotkey blocking logic:
+
+- Registers dummy stubs for all Hyper+key combinations via `RegisterHotKey`
+- Waits for `explorer.exe` to appear (polling every second)
+- Holds stubs for 4 seconds — the window in which Explorer attempts and fails its own registrations
+- Calls `UnregisterHotKey` to release the stubs
+- Monitors `explorer.exe` for exit, then loops back to re-register
+- Can also be run standalone for testing without the service
+
+### State machine (inside the helper's RunLoop)
+
+```
+REGISTER stubs
+    → wait for explorer.exe to appear
+    → delay 4 seconds (Explorer attempts registration and fails)
+    → UNREGISTER stubs
+    → wait for explorer.exe to exit
+    → loop back to REGISTER
+```
+
+### Hotkey list (MOD_WIN | MOD_ALT | MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT)
 
 | VK      | Shortcut        | Original behavior                        |
 |---------|-----------------|------------------------------------------|
@@ -53,36 +83,25 @@ Hotkey list (MOD_WIN | MOD_ALT | MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT):
 | `0x59`  | `Hyper+Y`       | Open Yammer (browser redirect)           |
 | `0x20`  | `Hyper+Space`   | Open emoji picker                        |
 
-The bare `Hyper` keypress (no additional key) opens the Office UWP app via a separate mechanism (ms-officeapp protocol handler). Block it with a registry tweak alongside the service:
+The bare `Hyper` keypress opens the Office UWP app via the `ms-officeapp` protocol handler — not a registered hotkey — so it cannot be blocked by `RegisterHotKey`. Suppress it separately:
 ```
 REG ADD HKCU\Software\Classes\ms-officeapp\Shell\Open\Command /t REG_SZ /d rundll32
 ```
 
-### 2. Explorer Monitor (`ExplorerMonitor`)
-Watches the `explorer.exe` process lifecycle using `CreateToolhelp32Snapshot` / `Process32Next` (or `System.Diagnostics.Process.GetProcessesByName`) and `WaitForSingleObject` / `Process.WaitForExit`. Drives the state machine transitions.
-
-### 3. State Machine (inside `BackgroundService.ExecuteAsync`)
-```
-REGISTER stubs
-    → wait for explorer.exe to appear
-    → delay ~4 seconds (gives Explorer time to attempt hotkey registration and fail)
-    → UNREGISTER stubs
-    → wait for explorer.exe to exit
-    → loop back to REGISTER
-```
-The 4-second delay is the critical window: Explorer must be running and have attempted registration before stubs are released.
-
 ## Key Technical Constraints
 
 ### Session 0 Isolation
-Standard Windows Services run in Session 0, which is isolated from the interactive desktop. `RegisterHotKey` calls from Session 0 apply only to Session 0 — they will **not** block Explorer's hotkeys in the user's interactive session (Session 1+). To register hotkeys in the user's session, the service must either:
-- Run in the user's session context (preferred: install via NSSM as a logon-triggered user-session service or Task Scheduler `At log on` task), **or**
-- Spawn a helper process in the interactive session using `WTSQueryUserToken` + `CreateProcessAsUser`.
 
-The NSSM/Task Scheduler approach is simpler and matches how the reference C++ service is deployed.
+Windows Vista+ enforces strict isolation between Session 0 (where all SCM-managed Windows Services run, regardless of logon account) and Session 1+ (the interactive user desktop). `RegisterHotKey` is session-scoped: a call from Session 0 only blocks hotkeys in Session 0 and has no effect on Explorer running in Session 1.
 
-### Message Loop Requirement
-`RegisterHotKey` with `hWnd = IntPtr.Zero` requires the registering thread to have a Win32 message loop. In a Worker Service, spin up a dedicated `Thread` (set `ApartmentState.STA`), call `RegisterHotKey` on it, then loop `GetMessage` until cancellation. Do not use `Task.Run` for this — thread identity matters for hotkey ownership.
+This is why the project uses two processes:
+- The **service** runs in Session 0 and has the privileges (`SE_TCB_PRIVILEGE` via Local System) needed to obtain user tokens and spawn processes into other sessions
+- The **helper** runs in Session 1 alongside Explorer and can therefore compete with it for hotkey registrations
 
 ### Startup Timing
-The service (or scheduled task) must start and register stubs **before** Explorer's shell registration runs at logon. Setting start type to `Automatic` with no dependencies is generally sufficient; a brief retry loop on registration failure handles races.
+
+The service receives a `WTS_SESSION_LOGON` notification when a user's session is created, before `Userinit.exe` has launched `explorer.exe`. The service spawns the helper immediately on this notification. By the time Explorer finishes initializing and attempts to register its hotkeys, the helper has already claimed them.
+
+### Message Loop and Thread Ownership
+
+`RegisterHotKey` with `hWnd = IntPtr.Zero` binds the registration to the calling thread's message queue. `UnregisterHotKey` must be called from the same thread. The helper uses a dedicated thread (`RunLoop`) for all `RegisterHotKey`/`UnregisterHotKey` calls to ensure thread ownership is preserved. `async/await` is avoided for these calls because continuations may resume on different thread-pool threads.

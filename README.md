@@ -40,26 +40,35 @@ This is a per-user setting and only needs to be run once.
 
 ## How it works
 
-Windows only allows one process to hold a global hotkey registration at a time. HyperKeyLiberator exploits this by registering dummy stubs for all Hyper+key combinations before Explorer loads. When Explorer starts and tries to register its shortcuts, they are already taken and its registrations silently fail. After a short delay (enough for Explorer to finish its startup sequence), the service releases the stubs — leaving the keys free for you to assign in AutoHotkey, PowerToys, or any other tool.
+Windows only allows one process to hold a global hotkey registration at a time. HyperKeyLiberator exploits this by registering dummy stubs for all Hyper+key combinations before Explorer loads. When Explorer starts and tries to register its shortcuts, they are already taken and its registrations silently fail. After a short delay (enough for Explorer to finish its startup sequence), the stubs are released — leaving the keys free for you to assign in AutoHotkey, PowerToys, or any other tool.
 
-If Explorer ever restarts, the service detects it and repeats the process automatically.
+If Explorer ever restarts, the process repeats automatically.
+
+### Why two executables?
+
+Windows enforces **Session 0 Isolation**: all Windows Services run in Session 0, a background session isolated from the interactive desktop (Session 1, where Explorer runs). `RegisterHotKey` is session-scoped, so a call from Session 0 has no effect on Explorer in Session 1.
+
+The solution is two processes:
+
+- **`HyperKeyLiberatorService.exe`** — the Windows Service (Session 0). Runs as Local System. Monitors user logon events and spawns the helper into your interactive session using `WTSQueryUserToken` + `CreateProcessAsUser`.
+- **`HyperKeyLiberator.exe`** — the helper (Session 1). A plain background process that runs alongside Explorer and handles all hotkey registration. Visible in Task Manager under your user processes.
 
 ## Installation
 
 ### Prerequisites
 
-- [NSSM](https://nssm.cc) (Non-Sucking Service Manager) — used to run the executable as a user-session service that starts at logon
+- [NSSM](https://nssm.cc) (Non-Sucking Service Manager) — used to register the service with Windows
 
 ### Steps
 
 1. Download the latest release (or [build it yourself](#build))
-2. Place the executable somewhere permanent (e.g. `C:\Tools\HyperKeyLiberator\HyperKeyLiberator.exe`)
+2. Place **both** `HyperKeyLiberatorService.exe` and `HyperKeyLiberator.exe` in the same permanent folder (e.g. `C:\Services\HyperKeyLiberator\`)
 3. Open an elevated terminal and install the service via NSSM:
    ```
-   nssm install HyperKeyLiberator "C:\Tools\HyperKeyLiberator\HyperKeyLiberator.exe"
+   nssm install HyperKeyLiberator "C:\Services\HyperKeyLiberator\HyperKeyLiberatorService.exe"
    ```
-4. In the NSSM GUI that opens, go to the **Log on** tab and set it to log on as your user account (not Local System) — this is required for hotkey registration to work in your interactive session
-5. Set the startup type to **Automatic** and start the service:
+4. Leave the **Log on** tab set to **Local System** — the service needs `SE_TCB_PRIVILEGE` (held by Local System) to obtain user session tokens and spawn the helper into your interactive session
+5. Start the service:
    ```
    sc start HyperKeyLiberator
    ```
