@@ -1,4 +1,4 @@
-# HyperKeyLiberator
+# HyperKey Liberator
 
 Prevents Windows Explorer from hijacking Hyper-key shortcuts, freeing them for your own bindings.
 
