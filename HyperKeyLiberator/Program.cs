@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace HyperKeyLiberator;
 
-public class Worker(ILogger<Worker> logger) : BackgroundService
+internal static class Program
 {
     // W, T, Y, O, P, D, L, X, N, Space
     private static readonly uint[] offendingKeys = [0x57, 0x54, 0x59, 0x4F, 0x50, 0x44, 0x4C, 0x58, 0x4E, 0x20];
@@ -20,6 +20,13 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    private static void Main()
+    {
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+        RunLoop(cts.Token);
+    }
 
     private static uint FindProcessId(string processName)
     {
@@ -38,61 +45,46 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
         catch (ArgumentException) { } // Process already exited before we could open it
     }
 
-    private void Takeover()
+    private static void Takeover()
     {
         for (int i = 0; i < offendingKeys.Length; i++)
         {
             if (!RegisterHotKey(IntPtr.Zero, i, Modifiers, offendingKeys[i]))
-                logger.LogWarning("RegisterHotKey failed for index {Index} (VK 0x{VK:X2}): Win32 error {Error}",
-                    i, offendingKeys[i], Marshal.GetLastWin32Error());
+                Console.WriteLine($"RegisterHotKey failed for index {i} (VK 0x{offendingKeys[i]:X2}): Win32 error {Marshal.GetLastWin32Error()}");
         }
     }
 
-    private void Relinquish()
+    private static void Relinquish()
     {
         for (int i = 0; i < offendingKeys.Length; i++)
             UnregisterHotKey(IntPtr.Zero, i);
     }
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        // RegisterHotKey/UnregisterHotKey are bound to the calling thread's message queue,
-        // so both must be called from the same dedicated thread — not the thread pool.
-        var tcs = new TaskCompletionSource();
-        var thread = new Thread(() =>
-        {
-            try { RunLoop(stoppingToken); }
-            finally { tcs.SetResult(); }
-        }) { IsBackground = true };
-        thread.Start();
-        return tcs.Task;
-    }
-
-    private void RunLoop(CancellationToken stoppingToken)
+    private static void RunLoop(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            logger.LogInformation("Registering hotkey stubs");
+            Console.WriteLine("Registering hotkey stubs");
             Takeover();
 
-            logger.LogInformation("Waiting for explorer.exe");
+            Console.WriteLine("Waiting for explorer.exe");
             uint pid;
             while ((pid = FindProcessId("explorer.exe")) == 0)
             {
                 if (stoppingToken.WaitHandle.WaitOne(1000)) { Relinquish(); return; }
             }
 
-            logger.LogInformation("Explorer found (PID {Pid}), holding stubs for 4 seconds", pid);
+            Console.WriteLine($"Explorer found (PID {pid}), holding stubs for 4 seconds");
             if (stoppingToken.WaitHandle.WaitOne(4000)) { Relinquish(); return; }
 
-            logger.LogInformation("Releasing hotkey stubs");
+            Console.WriteLine("Releasing hotkey stubs");
             Relinquish();
 
-            logger.LogInformation("Monitoring explorer.exe (PID {Pid}) for exit", pid);
+            Console.WriteLine($"Monitoring explorer.exe (PID {pid}) for exit");
             WaitForProcessExit(pid, stoppingToken);
 
             if (!stoppingToken.IsCancellationRequested)
-                logger.LogInformation("Explorer exited, restarting cycle");
+                Console.WriteLine("Explorer exited, restarting cycle");
         }
     }
 }

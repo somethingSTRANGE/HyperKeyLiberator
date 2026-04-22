@@ -1,4 +1,4 @@
-using HyperKeyLiberator;
+using HyperKeyLiberatorService;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService(options => options.ServiceName = "HyperKeyLiberator");
