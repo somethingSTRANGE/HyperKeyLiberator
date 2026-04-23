@@ -36,7 +36,11 @@ The _bare_ `Hyper` keypress (no additional key) launches the Office UWP app via 
 REG ADD HKCU\Software\Classes\ms-officeapp\Shell\Open\Command /t REG_SZ /d rundll32
 ```
 
-This is a per-user setting and only needs to be run once.
+This is a per-user setting and only needs to be run once. To reverse it:
+
+```
+REG DELETE HKCU\Software\Classes\ms-officeapp\Shell\Open\Command /f
+```
 
 ## How it works
 
@@ -132,10 +136,7 @@ In AutoHotkey, `^` is Ctrl, `#` is Win, `!` is Alt, and `+` is Shift — so `^#!
    ```
 3. Delete the folder containing `HyperKeyLiberatorService.exe` and `HyperKeyLiberator.exe`
 
-If you applied the bare Hyper key fix, remove it with:
-```
-REG DELETE HKCU\Software\Classes\ms-officeapp\Shell\Open\Command /f
-```
+If you applied the bare Hyper key fix, see [The _bare_ Hyper key](#the-bare-hyper-key) section for how to reverse it.
 
 ## Build
 
