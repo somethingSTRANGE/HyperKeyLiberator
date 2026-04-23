@@ -108,11 +108,15 @@ In AutoHotkey, `^` is Ctrl, `#` is Win, `!` is Alt, and `+` is Shift — so `^#!
    nssm install HyperKeyLiberator "C:\Services\HyperKeyLiberator\HyperKeyLiberatorService.exe"
    ```
 4. Leave the **Log on** tab set to **Local System** — the service needs `SE_TCB_PRIVILEGE` (held by Local System) to obtain user session tokens and spawn the helper into your interactive session
-5. Start the service:
+5. Set the display name shown in Services and Task Manager:
+   ```
+   nssm set HyperKeyLiberator DisplayName "HyperKey Liberator"
+   ```
+6. Start the service:
    ```
    sc start HyperKeyLiberator
    ```
-6. Log out and back in to verify the shortcuts no longer trigger their default behaviors
+7. Log out and back in to verify the shortcuts no longer trigger their default behaviors
 
 ## Build
 
