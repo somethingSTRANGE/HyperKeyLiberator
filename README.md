@@ -97,26 +97,45 @@ In AutoHotkey, `^` is Ctrl, `#` is Win, `!` is Alt, and `+` is Shift — so `^#!
 
 ### Prerequisites
 
-- [NSSM](https://nssm.cc) (Non-Sucking Service Manager) — used to register the service with Windows
+- Windows 10 or later (64-bit)
+- Administrator access to register the service
 
 ### Steps
 
 1. Download the latest release (or [build it yourself](#build))
 2. Place **both** `HyperKeyLiberatorService.exe` and `HyperKeyLiberator.exe` in the same permanent folder (e.g. `C:\Services\HyperKeyLiberator\`)
-3. Open an elevated terminal and install the service via NSSM:
+3. Open an elevated terminal and register the service:
    ```
-   nssm install HyperKeyLiberator "C:\Services\HyperKeyLiberator\HyperKeyLiberatorService.exe"
+   sc create HyperKeyLiberator binPath= "C:\Services\HyperKeyLiberator\HyperKeyLiberatorService.exe" start= auto DisplayName= "HyperKey Liberator Service"
    ```
-4. Leave the **Log on** tab set to **Local System** — the service needs `SE_TCB_PRIVILEGE` (held by Local System) to obtain user session tokens and spawn the helper into your interactive session
-5. Set the display name shown in Services and Task Manager:
+   Note the space after each `=` — this is required by `sc`.
+4. Set the service description:
    ```
-   nssm set HyperKeyLiberator DisplayName "HyperKey Liberator"
+   sc description HyperKeyLiberator "Prevents Explorer from hijacking Hyper-key shortcuts"
    ```
+5. The service runs as **Local System** by default — this is required. `SE_TCB_PRIVILEGE` (held by Local System) is needed to obtain user session tokens and spawn the helper into your interactive session.
 6. Start the service:
    ```
    sc start HyperKeyLiberator
    ```
 7. Log out and back in to verify the shortcuts no longer trigger their default behaviors
+
+## Uninstallation
+
+1. Open an elevated terminal and stop the service:
+   ```
+   sc stop HyperKeyLiberator
+   ```
+2. Remove the service registration:
+   ```
+   sc delete HyperKeyLiberator
+   ```
+3. Delete the folder containing `HyperKeyLiberatorService.exe` and `HyperKeyLiberator.exe`
+
+If you applied the bare Hyper key fix, remove it with:
+```
+REG DELETE HKCU\Software\Classes\ms-officeapp\Shell\Open\Command /f
+```
 
 ## Build
 
