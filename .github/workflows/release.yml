@@ -18,11 +18,16 @@ jobs:
         with:
           dotnet-version: '10.x'
 
+      - name: Get version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
       - name: Publish service
-        run: dotnet publish HyperKeyLiberatorService/HyperKeyLiberatorService.csproj -c Release -r win-x64 --self-contained
+        run: dotnet publish HyperKeyLiberatorService/HyperKeyLiberatorService.csproj -c Release -r win-x64 --self-contained -p:Version=${{ steps.version.outputs.VERSION }}
 
       - name: Publish helper
-        run: dotnet publish HyperKeyLiberator/HyperKeyLiberator.csproj -c Release -r win-x64 --self-contained
+        run: dotnet publish HyperKeyLiberator/HyperKeyLiberator.csproj -c Release -r win-x64 --self-contained -p:Version=${{ steps.version.outputs.VERSION }}
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
