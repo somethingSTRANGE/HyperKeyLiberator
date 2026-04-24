@@ -2,6 +2,8 @@
 
 Prevents Windows Explorer from hijacking Hyper-key shortcuts, freeing them for your own bindings.
 
+Unlike the C++ tools this is based on — which work by killing and restarting Explorer, causing your shell to briefly disappear — this service takes a non-disruptive approach. It registers dummy hotkey stubs before Explorer loads and releases them after, so Explorer never restarts. Sessions are monitored automatically across logon and logoff, and multiple concurrent users are supported.
+
 ## What is the Hyper key?
 
 The **Hyper key** is the combination of all four standard modifier keys pressed simultaneously:
