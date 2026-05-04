@@ -8,6 +8,7 @@
     <PublishSingleFile>true</PublishSingleFile>
     <PublishTrimmed>true</PublishTrimmed>
     <AssemblyTitle>HyperKey Liberator</AssemblyTitle>
+    <ApplicationIcon>HyperKeyLiberatorIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>
